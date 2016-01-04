@@ -13,9 +13,9 @@ I'm using VS 2013 and so maybe this will work for you. It does need to be built 
 
 >Obviously being a Winform / Context addition application there's no support or plan to support non-Windows OS
 
-
 ## Usage
 There are 3 modes to the program,
+
 1. No arguments / running the program directy is effectively an installation step, copies itself to WINDIR and adds Configure context menu (so do this as admin)
 2. Providing the arguement 'configure' will open the Winform to set up the DIR linkages (called copysets)
 3. Providing two arguements that correspond to a copyset and source file. The source file must reside within a DIR of the copyset
