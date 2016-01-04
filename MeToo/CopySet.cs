@@ -8,6 +8,10 @@ using System.Threading.Tasks;
 namespace MeToo {
 	public class CopySet {
 		
+		public class CopySetException : Exception {
+			public CopySetException(string errorMessage) : base(errorMessage) {}
+		}
+
 		public string Name {get; set;}
 		public string NameSpaceless {
 			get{
@@ -54,12 +58,13 @@ namespace MeToo {
 				foreach(string dir in dirs) {
 					if(dir != sourceDir) {
 						//Copy some stuff to some other places
-						//TODO REMOVE 2 safety
-						File.Copy(sourceFile, dir + suffix + "2", true);
+						File.Copy(sourceFile, dir + suffix, true);
 					}	
 				}
 			} else {
 				//Couldnt find the dir in this CopySet :(
+				throw new CopySetException(String.Format("The source file must be in a directory that is in the copyset '{0}'\n" + 
+															"Add this DIR to the copyset or create a new copyset that includes it", Name));
 			}
 		}
 	}

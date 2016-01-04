@@ -15,22 +15,19 @@ using System.Xml.Serialization;
 namespace MeToo {
 	public class MeToo {
 		
-		//* so we can really fuck shit up
-		private const string MenuName = "*\\shell\\MeToo";
-		private const string RegPrefix = "MeToo."; //Prefix to name all of our submenus to keep them seperate
-		//Location the Submenus are stored, in HKLM
-		private const string SubmenuPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\Shell";
-
+		public static readonly string BinName = "metoo.exe";
 		private const string SettingsFileLocation = "settings.xml";
-		private const string BinName = "metoo.exe";
 
-		//private IsolatedStorageFileStream SettingsFile;
+		private RegistryBuilder regBuilder;
+
 		private Dictionary<String, CopySet> CopySets;
 
 		public MeToo() {
 			//LoadConfig
 			XmlDocument xDoc = loadSettings();
 			CopySets = buildCopySets(xDoc);
+
+			regBuilder = new RegistryBuilder();
 		}
 
 		/// <summary>
@@ -59,17 +56,18 @@ namespace MeToo {
 		private Dictionary<string, CopySet> buildCopySets(XmlDocument xSettings) {
 			Dictionary<String, CopySet> cSets = new Dictionary<String, CopySet>();
 
-			XmlNodeList sets = xSettings.GetElementsByTagName("COPYSET");
+			XmlNodeList sets = xSettings.GetElementsByTagName("CopySet");
 			
 			foreach(XmlNode node in sets) {
-				string setName = node.SelectSingleNode("//NAME").InnerText;
+				string setName = node.SelectSingleNode("Name").InnerText;
 
 				List<String> dirs = new List<String>();
-				foreach (XmlNode dir in node.SelectNodes("//DIR")) {
+				foreach (XmlNode dir in node.SelectNodes("dirs/string")) {
 					dirs.Add(dir.InnerText);
 				}
 
-				cSets[setName] = new CopySet(setName, dirs);
+				CopySet cs = new CopySet(setName, dirs);
+				cSets[cs.NameSpaceless] = cs;
 			}
 
 			return cSets;
@@ -79,11 +77,15 @@ namespace MeToo {
 		/// Displays the configuration form
 		/// </summary>
 		private void startGui() {
+			startGui(false);
+		}
+
+		private void startGui(bool debug) {
 			Application.EnableVisualStyles();
 			Application.SetCompatibleTextRenderingDefault(false);
 
 			List<CopySet> inputList = new List<CopySet>(CopySets.Values);
-			Application.Run(new Form1(inputList, this));
+			Application.Run(new MeTooView(inputList, debug, this));
 		}
 
 		/// <summary>
@@ -94,158 +96,83 @@ namespace MeToo {
 		/// <param name="programLocation">source bin to copy</param>
 		//[PrincipalPermission(SecurityAction.Demand, Role = @"BUILTIN\Administrators")]
 		private void addContextAddition(string programLocation) {
-			RegistryKey regmenu = null;
-			RegistryKey regcmd = null;
 
 			try	{
 				//Copy itself to Windows Dir so the program can be called from the context menu
 				string winDir = Environment.GetEnvironmentVariable("WINDIR");
 
 				if (!programLocation.StartsWith(winDir)) {
-					File.Copy(programLocation, winDir + BinName, true);
+					File.Copy(programLocation, winDir + "\\" + BinName, true);
 				} else {
-					//No need to make another copy
+					//If were already being run from the windir there's no need to make another copy
 					//Currently do nothing
 				}
 
-				//Setup reg keys, starts with only the config and main option, copysets are created dynamically
-				if (Registry.ClassesRoot.OpenSubKey(MenuName) == null) {
-					regmenu = Registry.ClassesRoot.CreateSubKey(MenuName);
-					if (regmenu != null) {
-						regmenu.SetValue("MUIVerb", "Me Too!");
-						regmenu.SetValue("SubCommands", RegPrefix + "Configure");
-					}
+				//Setup the reg keys for the main, submenu and config
+				regBuilder.buildInitialMenu();
 
-					//Sub menu is setup in a completely different location
-					string submenuKey = SubmenuPath + "\\" + RegPrefix + "Configure";
-
-					if (Registry.LocalMachine.OpenSubKey(submenuKey) == null) {
-						//Create the subkey to be linked to
-						regcmd = Registry.LocalMachine.CreateSubKey(submenuKey);
-						if (regcmd != null) {
-							regcmd.SetValue("","Configure");
-							//Create the command subkey as the action to be performed
-							var subCommand = regcmd.CreateSubKey("command");
-							subCommand.SetValue("", "metoo configure");
-						}
-					}
-				}
+				//Show confirm message
+				MessageBox.Show("Context addition created!\nTo get started, right click any file and then go to Me Too!->Configure", "MeToo Installation Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 			}
 			catch(Exception ex)	{
-				//On Failure write out an error log to a temp file and then display a somewhat helpful error message
-				string tempLocation = Environment.GetEnvironmentVariable("TEMP");
-				string failureLogName = tempLocation + "\\MeTooError-" + DateTime.UtcNow.ToString();
+				logError("Exception occured whilst attempting to build context menu by writing registry keys", ex);
 
-				using (StreamWriter errorLog = File.CreateText(tempLocation + "\\" + failureLogName)) {
-					errorLog.WriteLine("Exception occured whilst attempting to build context menu by writing registry keys");
-					errorLog.WriteLine(ex.Message);
-					errorLog.WriteLine(ex.StackTrace.ToString());
-					errorLog.Flush();
-					errorLog.Close();
-				}
-
-				MessageBox.Show("A failure occured setting up the registry keys for the context menu, exception written to: " + failureLogName, 
+				MessageBox.Show(@"A failure occured setting up the registry keys for the context menu.\n" + 
+									"Make sure you are running as root.\n" + 
+									"Exception written to temp directory",
 								"Critical Failure", 
 								MessageBoxButtons.OK,
 								MessageBoxIcon.Error);
 			}
-			finally {
-				if(regmenu != null)	regmenu.Close();
-				if(regcmd != null)	regcmd.Close();
-			}
 		}
-
-		/// <summary>
-		/// Builds the list of submenu commands to be included in the submenu
-		/// </summary>
-		/// <param name="copySets"></param>
-		private void buildSubmenuList(List<CopySet> copySets) {
-			
-			StringBuilder sb = new StringBuilder();
-
-			if(copySets.Count > 0) {
-				foreach (var item in copySets) {
-					sb.Append(RegPrefix + item.NameSpaceless + ";");
-				}
-				sb.Append("|;");
-			}
-			
-			sb.Append(RegPrefix + "Configure");
-
-			//Write the new menu to the registry
-			RegistryKey regmenu = Registry.ClassesRoot.OpenSubKey(MenuName);
-			regmenu.SetValue("SubCommands", sb.ToString());
-		}
-
-		/// <summary>
-		/// Adds a submenu key that can then be included in the submenu
-		/// </summary>
-		/// <param name="name"></param>
-		/// <param name="command"></param>
-		private void addSubmenu(CopySet cs) {
-			try {
-				string submenuKey = SubmenuPath + "\\" + RegPrefix + cs.NameSpaceless;
-				string command = String.Format("{0} {1} \"%1\"", BinName, cs.NameSpaceless);
-
-				RegistryKey menuKey = Registry.LocalMachine.OpenSubKey(submenuKey);
-				if (menuKey == null) {
-					//Create the subkey to be linked to
-					menuKey = Registry.LocalMachine.CreateSubKey(submenuKey);
-				}
-				
-				//Set the display name of the command
-				menuKey.SetValue("", cs.Name);
-
-				//Create the command subkey as the action to be performed
-				var subCommand = menuKey.OpenSubKey("command");
-				if(subCommand == null) {
-					subCommand = menuKey.CreateSubKey("command");
-				}
-
-				subCommand.SetValue("", command);
-			} catch (Exception ex) {
-				//TODO Srs
-
-			}
-		}
-
 
 		/// <summary>
 		/// Saves and builds the current config
 		/// </summary>
 		public bool SaveSettings(List<CopySet> copySets) {
 			
+			//Remove any CopySets that don't have any dirs
+			copySets.RemoveAll(f => f.dirs.Count == 0);
+
 			//Write out the config
 			using (IsolatedStorageFile settings = IsolatedStorageFile.GetStore(IsolatedStorageScope.User | IsolatedStorageScope.Assembly, null, null)) { 
 				using(IsolatedStorageFileStream settingsFile = settings.OpenFile(SettingsFileLocation, FileMode.Truncate, FileAccess.Write)){
 					//Serialize each of the sets
 					XmlDocument xDoc = new XmlDocument();
-					XmlSerializer xSez = new XmlSerializer(typeof(CopySet), new XmlRootAttribute("COPYSETS"));
+					XmlSerializer xSez = new XmlSerializer(typeof(CopySet[]), new XmlRootAttribute("COPYSETS"));
 					
 					//Dont write out with any crappy namespaces
 					XmlSerializerNamespaces ns = new XmlSerializerNamespaces();
 					ns.Add("", "");
 
-					foreach (var cs in copySets)
-					{
-						xSez.Serialize(settingsFile, cs, ns);
-					}
-
+					xSez.Serialize(settingsFile, copySets.ToArray(), ns);
 				}
 			}
 			
 			//Delete all existing context submenus
-			//TODO Registry.LocalMachine.
+			regBuilder.deleteAllSubmenus();
 
 			//Update/Replace/Create context menu entries
 			foreach (var cs in copySets) {
-				addSubmenu(cs);
+				try {
+					regBuilder.buildSubmenu(cs.Name, cs.NameSpaceless);
+				}
+				catch (Exception ex) {
+					logError("Failed to add submenu: " + cs.Name, ex);
+
+					MessageBox.Show("Failed to build registry key for new copyset " + cs.Name,
+									"Operation Failed",
+									MessageBoxButtons.OK,
+									MessageBoxIcon.Exclamation);
+				}
 			}
 
 			//Update the list of possible context menu entries
-			buildSubmenuList(copySets);
+			//Get all of the spaceless names of the submenus into a list
+			IEnumerable<string> names = copySets.Select(f => f.NameSpaceless);
+			regBuilder.buildSubMenuLink(names);
 
-			return false;
+			return true;
 		}
 
 		/// <summary>
@@ -256,11 +183,21 @@ namespace MeToo {
 		/// <param name="copySetName">Name of the copyset the defines where to copy the file</param>
 		private void doSomeCopying(string copySetName, string sourceFile) {
 			
+			//As arguements cant have spaces, this is done to the CS names
+			copySetName = copySetName.Replace(" ", String.Empty);
+
 			if (CopySets.ContainsKey(copySetName)) {
 				CopySet cs = CopySets[copySetName];
-				doSomeCopying(sourceFile, cs);
+				doSomeCopying(cs, sourceFile);
 			} else {
-				MessageBox.Show("Could not find the CopySet: '" + copySetName + "'",
+
+				StringBuilder sb = new StringBuilder();
+				foreach (CopySet item in CopySets.Values) {
+					sb.Append(item.NameSpaceless);
+					sb.Append(", ");
+				}
+
+				MessageBox.Show("Could not find the CopySet: '" + copySetName + "'\n Found: " + sb.ToString(),
 								"Invalid CopySet",
 								MessageBoxButtons.OK,
 								MessageBoxIcon.Error);
@@ -274,10 +211,41 @@ namespace MeToo {
 		/// </summary>
 		/// <param name="sourceFile">File to copy to other sets</param>
 		/// <param name="copySetName">Name of the copyset the defines where to copy the file</param>
-		private void doSomeCopying(string sourceFile, CopySet set) {
-			set.CopyFile(sourceFile);
+		private void doSomeCopying(CopySet set, string sourceFile) {
+
+			try {
+				set.CopyFile(sourceFile);
+			}
+			catch(IOException ioe) {
+				logError(String.Format("Critical failure to copy file {0} to copy set {1}", sourceFile, set.Name), ioe);
+				MessageBox.Show("IO Exception occured, check the logs but possibly a permission issue on dest / source",
+									"Failed to Copy", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+			}
+			catch(CopySet.CopySetException cse) {
+				logError(String.Format("Failure to copy file {0} to copy set {1}", sourceFile, set.Name), cse);
+				MessageBox.Show(cse.Message, "Failed to Copy", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+			}
 		}
 
+		/// <summary>
+		/// Logs the given exception and message to the temp directory error log with some nice formatting and stuff
+		/// </summary>
+		/// <param name="message">Freetext message to be displayed</param>
+		/// <param name="ex"></param>
+		private void logError(String message, Exception ex) {
+			
+			string tempLocation = Environment.GetEnvironmentVariable("TEMP");
+			string failureLogName = tempLocation + "\\MeTooError.log";
+
+			using (StreamWriter errorLog = File.AppendText(failureLogName)) {
+				errorLog.WriteLine("Date: " + DateTime.Now);
+				errorLog.WriteLine(message);
+				errorLog.WriteLine(ex.Message);
+				errorLog.WriteLine(ex.StackTrace.ToString());
+				errorLog.Flush();
+				errorLog.Close();
+			}
+		}
 
 		/// <summary>
 		/// The main entry point for the application.
@@ -288,25 +256,62 @@ namespace MeToo {
 
 			MeToo prog = new MeToo();
 
-			if (args.Length > 1) {
-
-				//Configure menu item selected start the gui
-				if (args[1].ToLower().Equals("configure")) {
-					prog.startGui();
-				}
-				else if(args.Length > 2) {
-					//Default case, copy to the given copyset
-					prog.doSomeCopying(args[1], args[2]);
-				} else {
-					//How did this happen, show usage? or just crash?
-					MessageBox.Show("There was " + (args.Length - 1) + " arguements, there should be 0 or 2", 
-									"Incorrect Arguement Count", 
-									MessageBoxButtons.OK, 
-									MessageBoxIcon.Error);
-				}
-			} else {
+			if (args.Length == 1) {
 				prog.addContextAddition(args[0]);
+			}
+			else if (args[1].ToLower().Equals("configure")) {
+				//Configure menu item selected start the gui
+				if (args.Length == 2) prog.startGui();
+				else if (args.Length == 3 && args[2].ToLower().Equals("debug")) {
+					prog.startGui(true);
+				}
+				else showIncorrectArguements(args.Length);
+			}
+			else if (args[1].ToLower().Equals("configure_admin")) {
+				//Process has been restarted as admin by itself
+				prog.startGui();
+			}
+			else if(args.Length == 3) {
+				//Default case, copy to the given copyset
+				prog.doSomeCopying(args[1], args[2]);
+			} else {
+				//How did this happen, show usage
+				showIncorrectArguements(args.Length);
+			}
+		}
+
+		private static void showIncorrectArguements(int argCount) {
+			//File name is always passed as an arguement, so -1 to get user passed args
+			if (argCount == 1 || argCount == 3) {
+				MessageBox.Show("There were " + (argCount - 1) + " arguements, there should be 0 for installation, 1 for setup or 2 for copying",
+							"Incorrect Arguement Count",
+							MessageBoxButtons.OK,
+							MessageBoxIcon.Error);
+			}
+			else {
+				MessageBox.Show("The correct number of arguements were supplied but not understood");
 			}
 		}
 	}
 }
+
+/*
+ * 
+					//ProcessStartInfo proc = new ProcessStartInfo();
+					//proc.UseShellExecute = true;
+					//proc.WorkingDirectory = Environment.CurrentDirectory;
+					//proc.FileName = Application.ExecutablePath;
+					//proc.Verb = "runas";
+					//proc.Arguments = "configure_admin";
+
+					//try {
+					//	Process.Start(proc);
+					//}
+
+					//catch {
+					//	// The user refused the elevation. Do nothing and return directly ...
+					//	return;
+					//}
+
+					//Application.Exit();
+ */
