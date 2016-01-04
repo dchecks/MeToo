@@ -5,6 +5,11 @@ VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MeToo", "MeToo\MeToo.csproj", "{232C05F9-1B3F-44A2-8AD0-70026FB9DB3F}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "bin", "bin", "{A43DDF36-87FC-4984-823E-885657829614}"
+	ProjectSection(SolutionItems) = preProject
+		MeToo\bin\x64\Release\MeToo.exe = MeToo\bin\x64\Release\MeToo.exe
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
