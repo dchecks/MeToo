@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace MeToo
 {
@@ -12,10 +11,10 @@ namespace MeToo
 	/// </summary>
 	public class RegistryBuilder
 	{
-		//Location the menu addition is added to the files types(in HK_Classes_Root
-		//* so we can really fuck shit up
+		//Location the menu addition is added to the files types(in HK_Classes_Root)
+		// * so we can really fuck shit up
 		private const string MenuName = "*\\shell\\MeToo";
-		private const string RegPrefix = "MeToo."; //Prefix to name all of our submenus to keep them seperate
+		private const string RegPrefix = "MeToo."; //Prefix to name all of our submenus to keep them separate
 		//Location the Submenus are stored, in HKLM
 		private const string SubmenuPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\Shell";
 
@@ -23,42 +22,34 @@ namespace MeToo
 
 		/// <summary>
 		/// Sets up a Me Too! and Configure submenu context addition
+		/// Throws up if we can't have access to the registry keys
 		/// </summary>
 		public void buildInitialMenu() {
-			RegistryKey regmenu = null;
-			RegistryKey regcmd = null;
-
-			try {
-				//Setup reg keys, starts with only the config and main option, copysets are created dynamically
-				if (Registry.ClassesRoot.OpenSubKey(MenuName) == null) {
-					regmenu = Registry.ClassesRoot.CreateSubKey(MenuName);
+			//Setup reg keys, starts with only the config and main option, copysets are created dynamically
+			if (Registry.ClassesRoot.OpenSubKey(MenuName) == null) {
+				using (RegistryKey regmenu = Registry.ClassesRoot.CreateSubKey(MenuName)) { 
 					if (regmenu != null) {
 						regmenu.SetValue("MUIVerb", "Me Too!");
 						regmenu.SetValue("SubCommands", RegPrefix + "Configure");
 					}
 				}
+			}
 
-				//Sub menu is setup in a completely different location
-				string submenuKey = SubmenuPath + "\\" + RegPrefix + "Configure";
+			//Sub menu is setup in a completely different location
+			string submenuKey = SubmenuPath + "\\" + RegPrefix + "Configure";
 
-				if ((regcmd = Registry.LocalMachine.OpenSubKey(submenuKey)) == null) {
+			using(RegistryKey regcmd = Registry.LocalMachine.OpenSubKey(submenuKey)){
+				if (regcmd == null) {
 					//Create the subkey to be linked to
-					regcmd = Registry.LocalMachine.CreateSubKey(submenuKey);
-					if (regcmd != null) {
+					RegistryKey newRegcmd = Registry.LocalMachine.CreateSubKey(submenuKey);
+					if (newRegcmd != null) {
 						//Set the name
-						regcmd.SetValue("", "Configure");
+						newRegcmd.SetValue("", "Configure");
 						//Create the command subkey as the action to be performed
-						var subCommand = regcmd.CreateSubKey("command");
+						var subCommand = newRegcmd.CreateSubKey("command");
 						subCommand.SetValue("", "metoo configure");
 					}
 				}
-			}
-			catch (Exception ex) {
-				throw ex;
-			}
-			finally {
-				if(regmenu != null)	regmenu.Close();
-				if(regcmd != null)	regcmd.Close();
 			}
 		}
 
